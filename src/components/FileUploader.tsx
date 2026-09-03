@@ -1,5 +1,5 @@
 import { Upload } from 'lucide-react'
-import { useRef } from 'react'
+import { useRef, type DragEvent } from 'react'
 import type { PdfFile } from '../hooks/useFileDrop'
 
 interface FileUploaderProps {
@@ -15,6 +15,7 @@ interface FileUploaderProps {
   }
   color?: string
   accept?: string
+  inputClassName?: string
 }
 
 export default function FileUploader({
@@ -23,10 +24,12 @@ export default function FileUploader({
   onBrowse,
   dragHandlers,
   color = '#EE6C4D',
+  inputClassName = '',
 }: FileUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
     inputRef.current?.click()
   }
 
@@ -39,7 +42,10 @@ export default function FileUploader({
 
   return (
     <div
-      {...dragHandlers}
+      onDragEnter={dragHandlers.handleDragEnter}
+      onDragLeave={dragHandlers.handleDragLeave}
+      onDragOver={dragHandlers.handleDragOver}
+      onDrop={dragHandlers.handleDrop}
       onClick={handleClick}
       className={`
         relative cursor-pointer rounded-2xl border-2 border-dashed p-12
@@ -53,12 +59,19 @@ export default function FileUploader({
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf"
+        accept=".pdf,.jpg,.jpeg,.png,.bmp,.tiff,.tif"
         multiple={multiple}
         onChange={handleChange}
-        className="hidden"
+        style={{ 
+          position: 'absolute', 
+          left: '-9999px',
+          width: '1px',
+          height: '1px',
+          opacity: 0
+        }}
+        className={inputClassName}
       />
-      <div className="flex flex-col items-center gap-4">
+      <div className="flex flex-col items-center gap-4 pointer-events-none">
         <div
           className="w-16 h-16 rounded-2xl flex items-center justify-center"
           style={{ backgroundColor: color + '15' }}
@@ -67,10 +80,10 @@ export default function FileUploader({
         </div>
         <div>
           <p className="text-lg font-medium text-gray-700">
-            {isDragging ? '松开鼠标上传文件' : '拖拽 PDF 文件到这里'}
+            {isDragging ? '松开鼠标上传文件' : '拖拽 PDF 或图片文件到这里'}
           </p>
           <p className="text-sm text-gray-400 mt-1">
-            或点击选择文件 · 支持 .pdf 格式
+            或点击选择文件 · 支持 .pdf .jpg .png 格式
           </p>
         </div>
       </div>

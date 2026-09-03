@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { FileDown, FileUp, Scissors, Image, FileText, FileType } from 'lucide-react'
+import { FileDown, FileUp, Scissors, Image, FileText, FileType, LayoutGrid } from 'lucide-react'
 
 const tools = [
   {
@@ -55,6 +55,15 @@ const tools = [
     color: '#8E44AD',
     path: '/word-to-pdf',
     category: 'convert',
+  },
+  {
+    id: 'n-up',
+    title: '发票合并到A4纸',
+    description: '将多张发票排列到A4纸上，支持多种布局和旋转。',
+    icon: LayoutGrid,
+    color: '#9B59B6',
+    path: '/n-up',
+    category: 'organize',
   },
 ]
 

@@ -6,22 +6,55 @@ export interface PdfFile {
   size: number
   buffer: ArrayBuffer
   pageCount?: number
+  type?: 'pdf' | 'image'
 }
+
+export type FileType = 'pdf' | 'image' | 'all'
 
 interface UseFileDropOptions {
   multiple?: boolean
+  fileType?: FileType
   onFilesAdded: (files: PdfFile[]) => void
 }
 
-export function useFileDrop({ multiple = false, onFilesAdded }: UseFileDropOptions) {
+const FILE_EXTENSIONS: Record<FileType, string[]> = {
+  pdf: ['.pdf'],
+  image: ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'],
+  all: ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'],
+}
+
+const MIME_TYPES: Record<FileType, string[]> = {
+  pdf: ['application/pdf'],
+  image: ['image/jpeg', 'image/png', 'image/bmp', 'image/tiff'],
+  all: ['application/pdf', 'image/jpeg', 'image/png', 'image/bmp', 'image/tiff'],
+}
+
+function isFileType(file: File, fileType: FileType): boolean {
+  const extensions = FILE_EXTENSIONS[fileType]
+  const mimeTypes = MIME_TYPES[fileType]
+  
+  const hasValidExtension = extensions.some(ext => 
+    file.name.toLowerCase().endsWith(ext)
+  )
+  const hasValidMimeType = mimeTypes.includes(file.type)
+  
+  return hasValidExtension || hasValidMimeType
+}
+
+function getFileType(file: File): 'pdf' | 'image' {
+  if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+    return 'pdf'
+  }
+  return 'image'
+}
+
+export function useFileDrop({ multiple = false, fileType = 'pdf', onFilesAdded }: UseFileDropOptions) {
   const [isDragging, setIsDragging] = useState(false)
   const dragCounter = useRef(0)
 
   const processFiles = useCallback(
     async (fileList: FileList | File[]) => {
-      const files = Array.from(fileList).filter(
-        (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
-      )
+      const files = Array.from(fileList).filter(f => isFileType(f, fileType))
       if (files.length === 0) return
 
       const readFileBuffer = (file: File): Promise<ArrayBuffer> => {
@@ -38,18 +71,19 @@ export function useFileDrop({ multiple = false, onFilesAdded }: UseFileDropOptio
         })
       }
 
-      const pdfFiles: PdfFile[] = await Promise.all(
+      const processedFiles: PdfFile[] = await Promise.all(
         files.map(async (file) => ({
           id: crypto.randomUUID(),
           name: file.name,
           size: file.size,
           buffer: await readFileBuffer(file),
+          type: getFileType(file),
         }))
       )
 
-      onFilesAdded(multiple ? pdfFiles : [pdfFiles[0]])
+      onFilesAdded(multiple ? processedFiles : [processedFiles[0]])
     },
-    [multiple, onFilesAdded]
+    [multiple, fileType, onFilesAdded]
   )
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {

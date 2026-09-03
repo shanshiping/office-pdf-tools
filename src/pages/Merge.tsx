@@ -8,15 +8,6 @@ import { useFileDrop, type PdfFile } from '../hooks/useFileDrop'
 import { mergePdf } from '../lib/pdf-merge'
 import { getPageCount } from '../lib/pdf-utils'
 
-declare global {
-  interface Window {
-    electronAPI?: {
-      saveFile: (data: { defaultPath: string; buffer: number[] }) => Promise<string | null>
-      openFiles: () => Promise<{ path: string; name: string; buffer: number[] }[]>
-    }
-  }
-}
-
 export default function Merge() {
   const [files, setFiles] = useState<PdfFile[]>([])
   const [processing, setProcessing] = useState(false)
@@ -40,7 +31,7 @@ export default function Merge() {
   }, [])
 
   const { isDragging, handleDragEnter, handleDragLeave, handleDragOver, handleDrop, processFiles } =
-    useFileDrop({ multiple: true, onFilesAdded: addFiles })
+    useFileDrop({ multiple: true, fileType: 'pdf', onFilesAdded: addFiles })
 
   const handleBrowse = (fileList: FileList) => {
     processFiles(fileList)
@@ -98,7 +89,7 @@ export default function Merge() {
   }
 
   const handleAddMore = () => {
-    document.querySelector<HTMLInputElement>('.file-input-hidden')?.click()
+    document.querySelector<HTMLInputElement>('.file-input-merge')?.click()
   }
 
   const totalPages = files.reduce((sum, f) => sum + (f.pageCount || 0), 0)
@@ -116,6 +107,7 @@ export default function Merge() {
             onBrowse={handleBrowse}
             dragHandlers={{ handleDragEnter, handleDragLeave, handleDragOver, handleDrop }}
             color="#EE6C4D"
+            inputClassName="file-input-merge"
           />
         ) : (
           <div className="space-y-6">

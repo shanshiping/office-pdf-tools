@@ -102,6 +102,7 @@ export default function Compress() {
             onBrowse={handleBrowse}
             dragHandlers={{ handleDragEnter, handleDragLeave, handleDragOver, handleDrop }}
             color="#8FBC5D"
+            inputClassName="file-input-compress"
           />
         ) : (
           <div className="space-y-6">

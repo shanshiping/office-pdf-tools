@@ -6,6 +6,7 @@ import DeletePages from './pages/DeletePages'
 import ImageToPdf from './pages/ImageToPdf'
 import PdfToWord from './pages/PdfToWord'
 import WordToPdf from './pages/WordToPdf'
+import NUp from './pages/NUp'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/image-to-pdf" element={<ImageToPdf />} />
         <Route path="/pdf-to-word" element={<PdfToWord />} />
         <Route path="/word-to-pdf" element={<WordToPdf />} />
+        <Route path="/n-up" element={<NUp />} />
       </Routes>
     </HashRouter>
   )

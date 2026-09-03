@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { FileText, Download } from 'lucide-react'
+import { FileText, Download, FolderOpen, File } from 'lucide-react'
 import ToolHeader from '../components/ToolHeader'
 import FileUploader from '../components/FileUploader'
 import FileList from '../components/FileList'
@@ -13,6 +13,7 @@ export default function PdfToWord() {
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [done, setDone] = useState(false)
+  const [savedFilePath, setSavedFilePath] = useState<string | null>(null)
 
   const addFile = useCallback(async (newFiles: PdfFile[]) => {
     try {
@@ -20,6 +21,7 @@ export default function PdfToWord() {
       const pageCount = await getPageCount(f.buffer)
       setFile({ ...f, pageCount })
       setDone(false)
+      setSavedFilePath(null)
     } catch (err) {
       console.error('Failed to load PDF:', err)
       alert('无法读取 PDF 文件，请确认文件未损坏')
@@ -36,6 +38,19 @@ export default function PdfToWord() {
   const removeFile = () => {
     setFile(null)
     setDone(false)
+    setSavedFilePath(null)
+  }
+
+  const handleOpenFile = async () => {
+    if (savedFilePath && window.electronAPI) {
+      await window.electronAPI.openFile(savedFilePath)
+    }
+  }
+
+  const handleOpenFolder = async () => {
+    if (savedFilePath && window.electronAPI) {
+      await window.electronAPI.showItemInFolder(savedFilePath)
+    }
   }
 
   const handleConvert = async () => {
@@ -43,14 +58,30 @@ export default function PdfToWord() {
     setProcessing(true)
     setProgress(0)
     setDone(false)
+    setSavedFilePath(null)
 
     try {
-      const result = await pdfToWord(file.buffer, setProgress)
+      let result: ArrayBuffer
+
+      if (window.electronAPI?.pdfToWord) {
+        // Use main process with OCR support
+        const uint8Array = new Uint8Array(file.buffer)
+        result = await window.electronAPI.pdfToWord({ inputBuffer: Array.from(uint8Array) })
+      } else {
+        // Fallback to browser version (no OCR)
+        result = await pdfToWord(file.buffer, setProgress)
+      }
+
       const filename = file.name.replace(/\.pdf$/i, '') + '.docx'
+
+      let finalPath: string | null = null
 
       if (window.electronAPI) {
         const uint8Array = new Uint8Array(result)
-        await window.electronAPI.saveFile({ defaultPath: filename, buffer: Array.from(uint8Array) })
+        finalPath = await window.electronAPI.saveFile({ defaultPath: filename, buffer: Array.from(uint8Array) })
+        if (finalPath) {
+          setSavedFilePath(finalPath)
+        }
       } else {
         const blob = new Blob([result], {
           type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -84,12 +115,13 @@ export default function PdfToWord() {
             onBrowse={handleBrowse}
             dragHandlers={{ handleDragEnter, handleDragLeave, handleDragOver, handleDrop }}
             color="#2980B9"
+            inputClassName="file-input-pdf-to-word"
           />
         ) : (
           <div className="space-y-6">
             <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100">
               <p className="text-sm text-blue-600">
-                <strong>高级模式:</strong> 保留原文档的字体样式、加粗、斜体和标题层级结构
+                <strong>高级模式:</strong> 保留原文档的字体样式、加粗、斜体和标题层级结构，无文本层时自动 OCR 识别
               </p>
             </div>
 
@@ -101,9 +133,25 @@ export default function PdfToWord() {
               </div>
             )}
 
-            {done && (
-              <div className="bg-green-50 rounded-2xl p-6 border border-green-100 text-center">
-                <p className="text-green-600 font-medium">转换完成！文件已保存</p>
+            {done && savedFilePath && (
+              <div className="bg-green-50 rounded-2xl p-6 border border-green-100">
+                <p className="text-green-600 font-medium mb-4">转换完成！文件已保存</p>
+                <div className="flex gap-3 justify-center">
+                  <button
+                    onClick={handleOpenFile}
+                    className="px-5 py-2.5 bg-green-500 text-white rounded-xl font-medium hover:bg-green-600 transition-colors flex items-center gap-2"
+                  >
+                    <File size={18} />
+                    打开文件
+                  </button>
+                  <button
+                    onClick={handleOpenFolder}
+                    className="px-5 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors flex items-center gap-2"
+                  >
+                    <FolderOpen size={18} />
+                    打开所在文件夹
+                  </button>
+                </div>
               </div>
             )}
 
