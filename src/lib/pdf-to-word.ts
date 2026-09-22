@@ -107,9 +107,12 @@ export function stripLatinNoise(text: string): string {
   const latin = (text.match(/[A-Za-z]/g) || []).length
   if (cjk < 4 && cjk < latin) return text
 
-  let out = text.replace(/\b[A-Za-z]{1,4}\s*\(\s*[A-Za-z]{1,8}\s*\)/g, '')
-  out = out.replace(/\(\s*[A-Za-z]{1,8}\s*\)/g, '')
-  out = out.replace(/\b[A-Za-z]{1,4}\b/g, (token) => (LATIN_KEEP_RE.test(token) ? token : ''))
+  let out = text.replace(/\b[A-Za-z]{1,4}\s*\(\s*[A-Za-z]{1,12}\s*\)/g, '')
+  out = out.replace(/\(\s*[A-Za-z]{1,12}\s*\)/g, '')
+  out = out.replace(/\b[A-Za-z]{2,16}\b/g, (token) => (LATIN_KEEP_RE.test(token) ? token : ''))
+  out = out.replace(/\b[A-Za-z]\b/g, (token) => (LATIN_KEEP_RE.test(token) ? token : ''))
+  out = out.replace(/([：:])\s*[.．]\s*/g, '$1')
+  out = out.replace(/(?<=[\u3400-\u9fff：:])\s*[.．]\s*(?=[\u3400-\u9fff])/g, '')
   return tightenCjkSpacing(out.replace(/\s{2,}/g, ' ').trim())
 }
 
@@ -421,14 +424,58 @@ const HEADING_RE = /^[一二三四五六七八九十]+[、．.]/
 const LIST_RE = /^\d+\s*[\.、，,．)]/
 const GREETING_RE = /全体员工|各部门/
 
+export function isLikelyListContinuation(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (LIST_RE.test(t) || HEADING_RE.test(t)) return false
+  if (/^(其他|备注|注[：:])/.test(t)) return false
+  if (/^[\u3400-\u9fff0-9A-Za-z]{1,16}类?支出[：:;；]/.test(t)) return false
+  return true
+}
+
+export function splitFusedNumberedText(text: string): string[] {
+  const trimmed = text.trim()
+  if (!trimmed) return []
+  const byNumber = trimmed.split(/(?<=[。；;])\s*(?=\d+\s*[\.、，,．)])/)
+  const out: string[] = []
+  for (const chunk of byNumber) {
+    for (const part of chunk.split(/(?<=[。])(?=其他)/)) {
+      const clean = part.trim()
+      if (clean) out.push(clean)
+    }
+  }
+  return out.length ? out : [trimmed]
+}
+
+export function expandFusedListLines(lines: PageLine[]): PageLine[] {
+  const out: PageLine[] = []
+  for (const line of lines) {
+    const parts = splitFusedNumberedText(line.text)
+    if (parts.length <= 1) {
+      out.push(line)
+      continue
+    }
+    parts.forEach((text, index) => {
+      out.push({
+        ...line,
+        text,
+        y: line.y + index * Math.max(12, line.height * 0.9),
+        height: Math.max(10, line.height * 0.85),
+      })
+    })
+  }
+  return out
+}
+
 export function linesToDocBlocks(lines: PageLine[], _pageWidth: number): DocBlock[] {
-  const sorted = [...lines].sort((a, b) => a.y - b.y || a.x - b.x)
+  const sorted = expandFusedListLines([...lines]).sort((a, b) => a.y - b.y || a.x - b.x)
   if (sorted.length === 0) return []
 
   const classify = (line: PageLine, isFirst: boolean): DocBlock['kind'] => {
     const text = line.text.trim()
     if (HEADING_RE.test(text)) return 'heading'
     if (LIST_RE.test(text)) return 'list'
+    if (/^(其他|备注)/.test(text) && /支出|说明|要求/.test(text)) return 'list'
     if (GREETING_RE.test(text) && text.length < 48) return 'greeting'
     if (isFirst && !LIST_RE.test(text) && !HEADING_RE.test(text)) return 'title'
     return 'paragraph'
@@ -440,9 +487,16 @@ export function linesToDocBlocks(lines: PageLine[], _pageWidth: number): DocBloc
     const kind = classify(line, groups.length === 0)
     const prev = last?.lines[last.lines.length - 1]
     const gap = prev ? line.y - (prev.y + prev.height) : 999
-    const newListItem = LIST_RE.test(line.text.trim())
+    const text = line.text.trim()
+    const newListItem = LIST_RE.test(text) || (/^(其他|备注)/.test(text) && /支出|说明|要求/.test(text))
 
-    if (last?.kind === 'list' && !newListItem && kind === 'paragraph' && gap <= 14) {
+    if (
+      last?.kind === 'list' &&
+      !newListItem &&
+      kind === 'paragraph' &&
+      gap <= 14 &&
+      isLikelyListContinuation(text)
+    ) {
       last.lines.push(line)
       continue
     }
@@ -450,7 +504,7 @@ export function linesToDocBlocks(lines: PageLine[], _pageWidth: number): DocBloc
       last.lines.push(line)
       continue
     }
-    if (last?.kind === 'title' && kind === 'paragraph' && gap <= 8 && line.text.trim().length < 24) {
+    if (last?.kind === 'title' && kind === 'paragraph' && gap <= 8 && text.length < 24) {
       last.lines.push(line)
       continue
     }

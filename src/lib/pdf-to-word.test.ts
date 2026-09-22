@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { convertInchesToTwip } from 'docx'
-import { EMPTY_PDF_TEXT_ERROR, joinLineItems, throwIfNoText, tightenCjkSpacing, cleanOcrText, isUsefulOcrLine, isLikelyStamp, isScannerWatermark, isEdgeStampText, isRedSealSample, isRedInkPixel, stripLatinNoise, pdfPointsToTwips, pdfPointsToWordPixels, pdfPointsToEmu, groupLaidOutItems, detectHeaderBottom, markSectionHeadings, filterOutlierItems, normalizePageLines, linesToDocBlocks, packPagesToWord, pdfToWord } from './pdf-to-word'
+import { EMPTY_PDF_TEXT_ERROR, joinLineItems, throwIfNoText, tightenCjkSpacing, cleanOcrText, isUsefulOcrLine, isLikelyStamp, isScannerWatermark, isEdgeStampText, isRedSealSample, isRedInkPixel, stripLatinNoise, isLikelyListContinuation, splitFusedNumberedText, pdfPointsToTwips, pdfPointsToWordPixels, pdfPointsToEmu, groupLaidOutItems, detectHeaderBottom, markSectionHeadings, filterOutlierItems, normalizePageLines, linesToDocBlocks, packPagesToWord, pdfToWord } from './pdf-to-word'
 import mammoth from 'mammoth'
 import { makePdf } from './test-pdf'
 
@@ -56,6 +56,12 @@ describe('stripLatinNoise', () => {
   it('keeps English letterhead and TEL', () => {
     expect(stripLatinNoise('TEL: 021-58355535')).toBe('TEL: 021-58355535')
     expect(stripLatinNoise('SHANGHAI KEYONTECHS CO., LTD.')).toBe('SHANGHAI KEYONTECHS CO., LTD.')
+  })
+
+  it('strips longer seal OCR junk like ENTRANE', () => {
+    expect(stripLatinNoise('4. 团建及私人聚餐类支出：. ENTRANE 餐费用。')).toBe(
+      '4. 团建及私人聚餐类支出：餐费用。'
+    )
   })
 })
 
@@ -232,6 +238,48 @@ describe('linesToDocBlocks', () => {
     ])
     expect(blocks[0].text).toContain('关于规范费用报销')
     expect(blocks.find((block) => block.kind === 'list' && block.text.startsWith('1.'))?.text).toContain('购物卡')
+  })
+
+  it('keeps item 5 separate when OCR drops its number', () => {
+    const blocks = linesToDocBlocks(
+      [
+        {
+          text: '4. 团建及私人聚餐类支出：餐费用。',
+          x: 86,
+          y: 300,
+          width: 280,
+          height: 14,
+          fontSize: 12,
+        },
+        {
+          text: '其他禁止报销支出：各类行政罚款、滞纳金。',
+          x: 86,
+          y: 316,
+          width: 320,
+          height: 14,
+          fontSize: 12,
+        },
+      ],
+      595
+    )
+    expect(blocks).toHaveLength(2)
+    expect(blocks[0].text).not.toContain('其他禁止')
+    expect(blocks[1].text).toContain('其他禁止报销支出')
+  })
+})
+
+describe('splitFusedNumberedText', () => {
+  it('splits a glued 4/5 list line', () => {
+    expect(
+      splitFusedNumberedText('4. 团建及私人聚餐类支出：餐费用。5. 其他禁止报销支出：各类行政罚款。')
+    ).toEqual(['4. 团建及私人聚餐类支出：餐费用。', '5. 其他禁止报销支出：各类行政罚款。'])
+  })
+})
+
+describe('isLikelyListContinuation', () => {
+  it('rejects a new expense category without a number', () => {
+    expect(isLikelyListContinuation('购物卡、礼品卡。')).toBe(true)
+    expect(isLikelyListContinuation('其他禁止报销支出：各类行政罚款。')).toBe(false)
   })
 })
 
