@@ -1,5 +1,5 @@
 import { Upload } from 'lucide-react'
-import { useRef, type DragEvent } from 'react'
+import { useRef } from 'react'
 import type { PdfFile } from '../hooks/useFileDrop'
 
 interface FileUploaderProps {
@@ -18,15 +18,39 @@ interface FileUploaderProps {
   inputClassName?: string
 }
 
+function hintForAccept(accept: string): { title: string; subtitle: string } {
+  const lower = accept.toLowerCase()
+  const allowsPdf = lower.includes('.pdf') || lower === '*/*'
+  const allowsImage = /image|\.jpg|\.png|\.webp|\.bmp|\.tif/.test(lower)
+  if (allowsPdf && allowsImage) {
+    return {
+      title: '拖拽 PDF 或图片文件到这里',
+      subtitle: '或点击选择文件 · 支持 PDF、JPG、PNG、WebP',
+    }
+  }
+  if (allowsImage) {
+    return {
+      title: '拖拽图片到这里',
+      subtitle: '或点击选择文件 · 支持 JPG、PNG、GIF、BMP、WebP',
+    }
+  }
+  return {
+    title: '拖拽 PDF 文件到这里',
+    subtitle: '或点击选择文件 · 支持 .pdf',
+  }
+}
+
 export default function FileUploader({
   multiple = false,
   isDragging,
   onBrowse,
   dragHandlers,
   color = '#EE6C4D',
+  accept = '.pdf',
   inputClassName = '',
 }: FileUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const hint = hintForAccept(accept)
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -59,15 +83,15 @@ export default function FileUploader({
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.jpg,.jpeg,.png,.bmp,.tiff,.tif"
+        accept={accept}
         multiple={multiple}
         onChange={handleChange}
-        style={{ 
-          position: 'absolute', 
+        style={{
+          position: 'absolute',
           left: '-9999px',
           width: '1px',
           height: '1px',
-          opacity: 0
+          opacity: 0,
         }}
         className={inputClassName}
       />
@@ -80,10 +104,10 @@ export default function FileUploader({
         </div>
         <div>
           <p className="text-lg font-medium text-gray-700">
-            {isDragging ? '松开鼠标上传文件' : '拖拽 PDF 或图片文件到这里'}
+            {isDragging ? '松开鼠标上传文件' : hint.title}
           </p>
           <p className="text-sm text-gray-400 mt-1">
-            或点击选择文件 · 支持 .pdf .jpg .png 格式
+            {hint.subtitle}
           </p>
         </div>
       </div>

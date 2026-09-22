@@ -6,5 +6,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
   showItemInFolder: (filePath) => ipcRenderer.invoke('show-item-in-folder', filePath),
-  pdfToWord: (data) => ipcRenderer.invoke('pdf-to-word', data),
+  printHtmlToPdf: (data) => ipcRenderer.invoke('print-html-to-pdf', data),
 })

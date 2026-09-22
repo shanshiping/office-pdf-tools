@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { ArrowUpDown, Download, Plus, RotateCw, Grid, Settings, FileImage, File, Eye, EyeOff } from 'lucide-react'
+import { Download, Plus, RotateCw, Grid, Settings, FileImage, File, Eye, EyeOff } from 'lucide-react'
 import ToolHeader from '../components/ToolHeader'
 import FileUploader from '../components/FileUploader'
 import ProgressBar from '../components/ProgressBar'
@@ -9,11 +9,12 @@ import {
   createNUpPdf,
   calculateLayout,
   getPdfPageSize,
-  imageToPdf,
+  sheetCount,
   PRESET_LAYOUTS,
   type PresetLayout,
   type PageWithRotation,
 } from '../lib/pdf-n-up'
+import { imageBufferToPdf } from '../lib/image-to-pdf'
 import { getPageCount } from '../lib/pdf-utils'
 
 interface FileWithMeta extends PdfFile {
@@ -47,13 +48,14 @@ export default function NUp() {
           const fileType = f.type || (f.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image')
           let buffer = f.buffer
           let pageCount = 1
-          let pageSize = await getPdfPageSize(buffer)
+          let pageSize = { width: 0, height: 0 }
 
           if (fileType === 'image') {
-            buffer = await imageToPdf(f.buffer, f.name)
+            buffer = await imageBufferToPdf(f.buffer, f.name)
             pageSize = await getPdfPageSize(buffer)
           } else {
             pageCount = await getPageCount(f.buffer)
+            pageSize = await getPdfPageSize(f.buffer)
           }
 
           return {
@@ -110,11 +112,15 @@ export default function NUp() {
         rotation: f.rotation,
       }))
 
-      const result = await createNUpPdf(
+      const { buffer: result, failed } = await createNUpPdf(
         pages,
         { rows, cols, margin, spacing },
         setProgress
       )
+
+      if (failed.length > 0) {
+        alert(`部分文件未能加入：${failed.join('、')}`)
+      }
 
       const filename = `invoices_${rows}x${cols}_merged.pdf`
 
@@ -141,7 +147,7 @@ export default function NUp() {
   }
 
   const totalPages = files.reduce((sum, f) => sum + f.pageCount, 0)
-  const sheetsNeeded = Math.ceil(files.length / layoutInfo.totalCells)
+  const sheetsNeeded = sheetCount(totalPages, layoutInfo.totalCells)
 
   return (
     <div className="min-h-screen bg-[#f0f2f5]">
@@ -156,6 +162,7 @@ export default function NUp() {
             onBrowse={handleBrowse}
             dragHandlers={{ handleDragEnter, handleDragLeave, handleDragOver, handleDrop }}
             color="#9B59B6"
+            accept=".pdf,.jpg,.jpeg,.png,.bmp,.gif,.webp,.tif,.tiff"
             inputClassName="file-input-n-up"
           />
         ) : (
@@ -176,6 +183,16 @@ export default function NUp() {
                 >
                   <Plus size={16} />
                   添加文件
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.bmp,.gif,.webp,.tif,.tiff"
+                    multiple
+                    className="file-input-n-up hidden"
+                    onChange={(e) => {
+                      if (e.target.files) processFiles(e.target.files)
+                      e.target.value = ''
+                    }}
+                  />
                 </button>
               </div>
 
@@ -335,7 +352,13 @@ export default function NUp() {
               {showPreview && files.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-gray-100">
                   <LayoutPreview
-                    files={files}
+                    files={files.flatMap((f) =>
+                      Array.from({ length: Math.max(1, f.pageCount) }, (_, i) => ({
+                        name: f.pageCount > 1 ? `${f.name} · ${i + 1}` : f.name,
+                        rotation: f.rotation,
+                        fileType: f.fileType,
+                      }))
+                    )}
                     rows={rows}
                     cols={cols}
                     margin={margin}

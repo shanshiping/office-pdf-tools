@@ -6,9 +6,9 @@ interface ElectronAPI {
   readFile: (filePath: string) => Promise<{ path: string; name: string; buffer: number[] }>
   openFile: (filePath: string) => Promise<boolean>
   showItemInFolder: (filePath: string) => Promise<boolean>
-  pdfToWord: (data: { inputBuffer: number[] }) => Promise<ArrayBuffer>
+  printHtmlToPdf: (data: { html: string }) => Promise<number[]>
 }
 
 interface Window {
-  electronAPI: ElectronAPI
+  electronAPI?: ElectronAPI
 }

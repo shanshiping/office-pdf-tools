@@ -102,6 +102,7 @@ export default function Compress() {
             onBrowse={handleBrowse}
             dragHandlers={{ handleDragEnter, handleDragLeave, handleDragOver, handleDrop }}
             color="#8FBC5D"
+            accept=".pdf"
             inputClassName="file-input-compress"
           />
         ) : (

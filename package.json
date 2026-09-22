@@ -2,11 +2,13 @@
   "name": "office-pdf-tools",
   "version": "1.0.0",
   "description": "本地 PDF 工具箱 - 压缩、合并、删页",
+  "author": "shanshiping",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test": "vitest run",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build:mac": "vite build && electron-builder --mac",
     "build:win": "vite build && electron-builder --win",
@@ -15,15 +17,29 @@
   "build": {
     "appId": "com.office.pdf-tools",
     "productName": "PDF 工具箱",
+    "copyright": "Copyright © 2026 shanshiping",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "resources"
     },
     "files": [
       "dist/**/*",
       "electron/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "asarUnpack": [
+      "**/*.wasm",
+      "**/pdf.worker*",
+      "**/tesseract/**",
+      "**/tessdata/**"
+    ],
     "mac": {
-      "icon": "build/icon.png",
+      "icon": "icon.icns",
       "target": [
         {
           "target": "dmg",
@@ -36,7 +52,8 @@
       "category": "public.app-category.productivity"
     },
     "win": {
-      "icon": "build/icon.png",
+      "icon": "icon.ico",
+      "artifactName": "${productName}-${version}-Setup.${ext}",
       "target": [
         {
           "target": "nsis",
@@ -48,17 +65,43 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PDF 工具箱",
+      "uninstallDisplayName": "PDF 工具箱",
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico",
+      "installerHeaderIcon": "icon.ico",
+      "installerSidebar": "installerSidebar.bmp",
+      "uninstallerSidebar": "uninstallerSidebar.bmp",
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
     },
     "dmg": {
+      "background": "dmg-background.png",
+      "icon": "icon.icns",
+      "iconSize": 80,
+      "iconTextSize": 13,
+      "window": {
+        "width": 540,
+        "height": 400
+      },
       "contents": [
         {
-          "x": 130,
-          "y": 220
+          "x": 160,
+          "y": 185,
+          "type": "file"
         },
         {
-          "x": 410,
-          "y": 220,
+          "x": 380,
+          "y": 185,
           "type": "link",
           "path": "/Applications"
         }
@@ -70,7 +113,6 @@
     "lucide-react": "^0.460.0",
     "mammoth": "^1.12.2",
     "pdf-lib": "^1.17.1",
-    "pdf2pic": "^3.2.0",
     "pdfjs-dist": "^4.9.155",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -89,6 +131,7 @@
     "tailwindcss": "^3.4.16",
     "typescript": "^5.6.3",
     "vite": "^6.0.3",
+    "vitest": "^3.2.4",
     "wait-on": "^8.0.1"
   }
 }

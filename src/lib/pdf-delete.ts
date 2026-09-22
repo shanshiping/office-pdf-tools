@@ -1,10 +1,5 @@
 import { PDFDocument } from 'pdf-lib'
-
-function copyBuffer(src: ArrayBuffer): ArrayBuffer {
-  const copy = new ArrayBuffer(src.byteLength)
-  new Uint8Array(copy).set(new Uint8Array(src))
-  return copy
-}
+import { copyArrayBuffer, uint8ToArrayBuffer } from './bytes'
 
 export async function deletePages(
   inputBuffer: ArrayBuffer,
@@ -13,7 +8,7 @@ export async function deletePages(
 ): Promise<ArrayBuffer> {
   onProgress?.(10)
 
-  const buf = copyBuffer(inputBuffer)
+  const buf = copyArrayBuffer(inputBuffer)
   const pdfDoc = await PDFDocument.load(buf, { ignoreEncryption: true })
   onProgress?.(30)
 
@@ -28,11 +23,11 @@ export async function deletePages(
   const modifiedBytes = await pdfDoc.save()
   onProgress?.(100)
 
-  return copyBuffer(modifiedBytes.buffer as ArrayBuffer)
+  return uint8ToArrayBuffer(modifiedBytes)
 }
 
 export async function getPageCount(buffer: ArrayBuffer): Promise<number> {
-  const buf = copyBuffer(buffer)
+  const buf = copyArrayBuffer(buffer)
   const pdfDoc = await PDFDocument.load(buf, { ignoreEncryption: true })
   return pdfDoc.getPageCount()
 }

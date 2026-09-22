@@ -41,7 +41,7 @@ const tools = [
   {
     id: 'pdf-to-word',
     title: 'PDF 转 Word',
-    description: '高级模式识别转换，保留字体样式、加粗和标题层级。',
+    description: '识别成可编辑段落文字，扫描件也会出字，页眉 Logo 单独保留。',
     icon: FileText,
     color: '#2980B9',
     path: '/pdf-to-word',
@@ -50,7 +50,7 @@ const tools = [
   {
     id: 'word-to-pdf',
     title: 'Word 转 PDF',
-    description: '将 Word 文档转换为 PDF 文件，保持排版一致。',
+    description: '将 Word 文档转为 PDF，桌面版用系统中文字体保留排版。',
     icon: FileType,
     color: '#8E44AD',
     path: '/word-to-pdf',
@@ -129,8 +129,9 @@ export default function Dashboard() {
           })}
         </div>
 
-        <div className="text-center mt-16 text-sm text-gray-400">
-          所有文件处理均在本地完成，不经过网络传输
+        <div className="text-center mt-16 text-sm text-gray-400 space-y-1">
+          <p>所有文件处理均在本地完成，不经过网络传输</p>
+          <p>Copyright © 2026 shanshiping</p>
         </div>
       </main>
     </div>

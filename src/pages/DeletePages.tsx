@@ -179,6 +179,7 @@ export default function DeletePages() {
             onBrowse={handleBrowse}
             dragHandlers={{ handleDragEnter, handleDragLeave, handleDragOver, handleDrop }}
             color="#3498DB"
+            accept=".pdf"
             inputClassName="file-input-delete-pages"
           />
         ) : (

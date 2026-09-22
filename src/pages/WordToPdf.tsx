@@ -4,6 +4,7 @@ import ToolHeader from '../components/ToolHeader'
 import FileList from '../components/FileList'
 import ProgressBar from '../components/ProgressBar'
 import { wordToPdf } from '../lib/word-to-pdf'
+import { copyArrayBuffer } from '../lib/bytes'
 
 interface WordFile {
   id: string
@@ -34,7 +35,7 @@ export default function WordToPdf() {
         id: crypto.randomUUID(),
         name: file.name,
         size: file.size,
-        buffer: reader.result as ArrayBuffer,
+        buffer: copyArrayBuffer(reader.result as ArrayBuffer),
       })
       setDone(false)
     }
@@ -108,7 +109,7 @@ export default function WordToPdf() {
 
   return (
     <div className="min-h-screen bg-[#f0f2f5]">
-      <ToolHeader title="Word 转 PDF" description="将 Word 文档转换为 PDF 文件" color="#8E44AD" />
+      <ToolHeader title="Word 转 PDF" description="将 Word 文档转换为 PDF 文件，桌面版保留中文排版" color="#8E44AD" />
 
       <main className="max-w-3xl mx-auto px-6 py-8">
         {!file ? (
@@ -152,6 +153,9 @@ export default function WordToPdf() {
             {done && (
               <div className="bg-green-50 rounded-2xl p-6 border border-green-100 text-center">
                 <p className="text-green-600 font-medium">转换完成！文件已保存</p>
+                {!window.electronAPI && (
+                  <p className="text-xs text-green-500 mt-2">浏览器模式使用系统字体绘制，桌面版排版更完整</p>
+                )}
               </div>
             )}
 

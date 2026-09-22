@@ -1,4 +1,5 @@
 import { PDFDocument, degrees, rgb } from 'pdf-lib'
+import { copyArrayBuffer, uint8ToArrayBuffer } from './bytes'
 
 export interface NUpOptions {
   rows: number
@@ -13,45 +14,13 @@ export interface PageWithRotation {
   rotation: number
 }
 
-const A4_WIDTH = 595.28
-const A4_HEIGHT = 841.89
-
-function copyBuffer(src: ArrayBuffer): ArrayBuffer {
-  const copy = new ArrayBuffer(src.byteLength)
-  new Uint8Array(copy).set(new Uint8Array(src))
-  return copy
+export interface NUpResult {
+  buffer: ArrayBuffer
+  failed: string[]
 }
 
-export async function imageToPdf(
-  imageBuffer: ArrayBuffer,
-  fileName: string
-): Promise<ArrayBuffer> {
-  const doc = await PDFDocument.create()
-  
-  let image
-  const ext = fileName.toLowerCase().split('.').pop()
-  
-  if (ext === 'png') {
-    image = await doc.embedPng(imageBuffer)
-  } else if (ext === 'jpg' || ext === 'jpeg') {
-    image = await doc.embedJpg(imageBuffer)
-  } else {
-    image = await doc.embedJpg(imageBuffer)
-  }
-  
-  const { width, height } = image.scale(1)
-  
-  const page = doc.addPage([width, height])
-  page.drawImage(image, {
-    x: 0,
-    y: 0,
-    width,
-    height,
-  })
-  
-  const pdfBytes = await doc.save()
-  return copyBuffer(pdfBytes.buffer as ArrayBuffer)
-}
+export const A4_WIDTH = 595.28
+export const A4_HEIGHT = 841.89
 
 export function calculateLayout(options: NUpOptions) {
   const { rows, cols, margin, spacing } = options
@@ -72,72 +41,78 @@ export function calculateLayout(options: NUpOptions) {
   }
 }
 
-function calculateOptimalSpacing(
-  pages: { width: number; height: number }[],
-  cellWidth: number,
-  cellHeight: number,
-  baseSpacing: number
-): number {
-  if (pages.length <= 1) return baseSpacing
+export function pagesOnSheet(totalPages: number, totalCells: number, sheet: number): number {
+  if (totalCells <= 0) return 0
+  return Math.max(0, Math.min(totalPages - sheet * totalCells, totalCells))
+}
 
-  const avgAspectRatio =
-    pages.reduce((sum, p) => sum + p.width / p.height, 0) / pages.length
-  const cellAspectRatio = cellWidth / cellHeight
-
-  const adjustedSpacing = baseSpacing * (avgAspectRatio > cellAspectRatio ? 1.1 : 0.9)
-
-  return Math.max(2, Math.min(adjustedSpacing, baseSpacing * 1.5))
+export function sheetCount(totalPages: number, totalCells: number): number {
+  if (totalPages <= 0 || totalCells <= 0) return 0
+  return Math.ceil(totalPages / totalCells)
 }
 
 export async function createNUpPdf(
   files: PageWithRotation[],
   options: NUpOptions,
   onProgress?: (progress: number) => void
-): Promise<ArrayBuffer> {
+): Promise<NUpResult> {
   const { rows, cols, margin, spacing } = options
   const { totalCells, cellWidth, cellHeight } = calculateLayout(options)
+  const failed: string[] = []
+
+  const items: { srcDoc: PDFDocument; pageIndex: number; name: string; rotation: number }[] = []
+
+  for (const fileInfo of files) {
+    try {
+      const srcDoc = await PDFDocument.load(copyArrayBuffer(fileInfo.buffer), {
+        ignoreEncryption: true,
+      })
+      const count = srcDoc.getPageCount()
+      if (count === 0) {
+        failed.push(fileInfo.name)
+        continue
+      }
+      for (let pageIndex = 0; pageIndex < count; pageIndex++) {
+        items.push({
+          srcDoc,
+          pageIndex,
+          name: fileInfo.name,
+          rotation: fileInfo.rotation || 0,
+        })
+      }
+    } catch (err) {
+      console.error(`Failed to load ${fileInfo.name}:`, err)
+      failed.push(fileInfo.name)
+    }
+  }
+
+  const totalPages = items.length
+  if (totalPages === 0) {
+    throw new Error(failed.length ? `无法处理文件：${failed.join('、')}` : '没有可排列的页面')
+  }
 
   const mergedDoc = await PDFDocument.create()
-  const a4Page = mergedDoc.addPage([A4_WIDTH, A4_HEIGHT])
-
-  a4Page.drawRectangle({
-    x: 0,
-    y: 0,
-    width: A4_WIDTH,
-    height: A4_HEIGHT,
-    color: rgb(1, 1, 1),
-  })
-
-  const totalPages = files.length
-  const pagesPerSheet = Math.min(totalPages, totalCells)
-  const sheetsNeeded = Math.ceil(totalPages / totalCells)
-
-  let pageIndex = 0
+  const sheetsNeeded = sheetCount(totalPages, totalCells)
+  let pageCursor = 0
 
   for (let sheet = 0; sheet < sheetsNeeded; sheet++) {
-    if (sheet > 0) {
-      const newPage = mergedDoc.addPage([A4_WIDTH, A4_HEIGHT])
-      newPage.drawRectangle({
-        x: 0,
-        y: 0,
-        width: A4_WIDTH,
-        height: A4_HEIGHT,
-        color: rgb(1, 1, 1),
-      })
-    }
+    const currentPage = mergedDoc.addPage([A4_WIDTH, A4_HEIGHT])
+    currentPage.drawRectangle({
+      x: 0,
+      y: 0,
+      width: A4_WIDTH,
+      height: A4_HEIGHT,
+      color: rgb(1, 1, 1),
+    })
 
-    const currentPage = mergedDoc.getPage(sheet)
-    const currentPagesOnSheet = Math.min(pagesPerSheet - sheet * totalCells, totalCells)
+    const currentPagesOnSheet = pagesOnSheet(totalPages, totalCells, sheet)
 
     for (let cellIndex = 0; cellIndex < currentPagesOnSheet; cellIndex++) {
-      const fileInfo = files[pageIndex]
-      if (!fileInfo) continue
+      const item = items[pageCursor]
+      if (!item) break
 
       try {
-        const srcDoc = await PDFDocument.load(copyBuffer(fileInfo.buffer), {
-          ignoreEncryption: true,
-        })
-        const [embeddedPage] = await mergedDoc.embedPdf(srcDoc, [0])
+        const [embeddedPage] = await mergedDoc.embedPdf(item.srcDoc, [item.pageIndex])
 
         const col = cellIndex % cols
         const row = Math.floor(cellIndex / cols)
@@ -163,27 +138,27 @@ export async function createNUpPdf(
           y: offsetY,
           width: scaledWidth,
           height: scaledHeight,
-          rotate: degrees(fileInfo.rotation || 0),
+          rotate: degrees(item.rotation || 0),
         })
-
-        onProgress?.(((pageIndex + 1) / totalPages) * 100)
       } catch (err) {
-        console.error(`Failed to embed page from ${fileInfo.name}:`, err)
+        console.error(`Failed to embed page from ${item.name}:`, err)
+        if (!failed.includes(item.name)) failed.push(item.name)
       }
 
-      pageIndex++
+      pageCursor++
+      onProgress?.((pageCursor / totalPages) * 100)
     }
   }
 
   const mergedBytes = await mergedDoc.save()
-  return copyBuffer(mergedBytes.buffer as ArrayBuffer)
+  return { buffer: uint8ToArrayBuffer(mergedBytes), failed }
 }
 
 export async function getPdfPageSize(
   buffer: ArrayBuffer
 ): Promise<{ width: number; height: number }> {
   try {
-    const doc = await PDFDocument.load(copyBuffer(buffer), { ignoreEncryption: true })
+    const doc = await PDFDocument.load(copyArrayBuffer(buffer), { ignoreEncryption: true })
     const page = doc.getPage(0)
     const { width, height } = page.getSize()
     return { width, height }

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { FileText, Download, FolderOpen, File } from 'lucide-react'
+import { FileText, FolderOpen, File } from 'lucide-react'
 import ToolHeader from '../components/ToolHeader'
 import FileUploader from '../components/FileUploader'
 import FileList from '../components/FileList'
@@ -12,6 +12,7 @@ export default function PdfToWord() {
   const [file, setFile] = useState<PdfFile | null>(null)
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [progressLabel, setProgressLabel] = useState('正在识别转换...')
   const [done, setDone] = useState(false)
   const [savedFilePath, setSavedFilePath] = useState<string | null>(null)
 
@@ -57,20 +58,15 @@ export default function PdfToWord() {
     if (!file) return
     setProcessing(true)
     setProgress(0)
+    setProgressLabel('正在转换...')
     setDone(false)
     setSavedFilePath(null)
 
     try {
-      let result: ArrayBuffer
-
-      if (window.electronAPI?.pdfToWord) {
-        // Use main process with OCR support
-        const uint8Array = new Uint8Array(file.buffer)
-        result = await window.electronAPI.pdfToWord({ inputBuffer: Array.from(uint8Array) })
-      } else {
-        // Fallback to browser version (no OCR)
-        result = await pdfToWord(file.buffer, setProgress)
-      }
+      const result = await pdfToWord(file.buffer, (value, label) => {
+        setProgress(value)
+        if (label) setProgressLabel(label)
+      })
 
       const filename = file.name.replace(/\.pdf$/i, '') + '.docx'
 
@@ -105,7 +101,7 @@ export default function PdfToWord() {
 
   return (
     <div className="min-h-screen bg-[#f0f2f5]">
-      <ToolHeader title="PDF 转 Word" description="将 PDF 文件转换为可编辑的 Word 文档" color="#2980B9" />
+      <ToolHeader title="PDF 转 Word" description="识别成可编辑段落文字，页眉 Logo 单独保留" color="#2980B9" />
 
       <main className="max-w-3xl mx-auto px-6 py-8">
         {!file ? (
@@ -115,13 +111,14 @@ export default function PdfToWord() {
             onBrowse={handleBrowse}
             dragHandlers={{ handleDragEnter, handleDragLeave, handleDragOver, handleDrop }}
             color="#2980B9"
+            accept=".pdf"
             inputClassName="file-input-pdf-to-word"
           />
         ) : (
           <div className="space-y-6">
             <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100">
               <p className="text-sm text-blue-600">
-                <strong>高级模式:</strong> 保留原文档的字体样式、加粗、斜体和标题层级结构，无文本层时自动 OCR 识别
+                <strong>可编辑段落:</strong> 正文按标题、段落、列表输出，不再逐行文本框。页眉 Logo、印章会单独保留。
               </p>
             </div>
 
@@ -129,7 +126,7 @@ export default function PdfToWord() {
 
             {processing && (
               <div className="bg-white rounded-2xl p-6 border border-gray-100">
-                <ProgressBar progress={progress} label="正在识别转换..." />
+                <ProgressBar progress={progress} label={progressLabel} />
               </div>
             )}
 

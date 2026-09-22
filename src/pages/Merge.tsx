@@ -107,6 +107,7 @@ export default function Merge() {
             onBrowse={handleBrowse}
             dragHandlers={{ handleDragEnter, handleDragLeave, handleDragOver, handleDrop }}
             color="#EE6C4D"
+            accept=".pdf"
             inputClassName="file-input-merge"
           />
         ) : (
@@ -124,6 +125,16 @@ export default function Merge() {
               >
                 <Plus size={16} />
                 添加文件
+                <input
+                  type="file"
+                  accept=".pdf"
+                  multiple
+                  className="file-input-merge hidden"
+                  onChange={(e) => {
+                    if (e.target.files) processFiles(e.target.files)
+                    e.target.value = ''
+                  }}
+                />
               </button>
             </div>
 

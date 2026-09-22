@@ -19,17 +19,17 @@ interface UseFileDropOptions {
 
 const FILE_EXTENSIONS: Record<FileType, string[]> = {
   pdf: ['.pdf'],
-  image: ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'],
-  all: ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'],
+  image: ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp', '.tiff', '.tif'],
+  all: ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp', '.tiff', '.tif'],
 }
 
 const MIME_TYPES: Record<FileType, string[]> = {
   pdf: ['application/pdf'],
-  image: ['image/jpeg', 'image/png', 'image/bmp', 'image/tiff'],
-  all: ['application/pdf', 'image/jpeg', 'image/png', 'image/bmp', 'image/tiff'],
+  image: ['image/jpeg', 'image/png', 'image/bmp', 'image/gif', 'image/webp', 'image/tiff'],
+  all: ['application/pdf', 'image/jpeg', 'image/png', 'image/bmp', 'image/gif', 'image/webp', 'image/tiff'],
 }
 
-function isFileType(file: File, fileType: FileType): boolean {
+export function isFileType(file: { name: string; type: string }, fileType: FileType): boolean {
   const extensions = FILE_EXTENSIONS[fileType]
   const mimeTypes = MIME_TYPES[fileType]
   
@@ -41,7 +41,7 @@ function isFileType(file: File, fileType: FileType): boolean {
   return hasValidExtension || hasValidMimeType
 }
 
-function getFileType(file: File): 'pdf' | 'image' {
+export function getFileType(file: { name: string; type: string }): 'pdf' | 'image' {
   if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
     return 'pdf'
   }
