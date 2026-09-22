@@ -68,7 +68,7 @@
 
 - `bytes.ts`：`copyArrayBuffer` / `uint8ToArrayBuffer`。`pdf-lib` `save().buffer` 会切到共享底层，**禁止直接用 `.buffer` 当结果**。
 - `pdf-utils.ts`：pdf.js worker、页数、缩略图。删页页数用 `pdf-delete.getPageCount`（pdf-lib），预览用 `pdf-utils`。
-- `ocr.ts`：tesseract.js，`chi_sim+eng`，资源走 `public/`。`rotateAuto: false`（pdf.js viewport 已转正）。
+- `ocr.ts`：tesseract.js，`chi_sim+eng`，资源走 `public/`。`rotateAuto: false`（pdf.js viewport 已转正）。扫描件 OCR 前漂白红章再对比拉伸；中文行清短拉丁碎片，页眉英文保留。
 
 ---
 

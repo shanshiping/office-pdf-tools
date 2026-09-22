@@ -1,12 +1,91 @@
 import { describe, expect, it } from 'vitest'
 import { convertInchesToTwip } from 'docx'
-import { EMPTY_PDF_TEXT_ERROR, joinLineItems, throwIfNoText, tightenCjkSpacing, pdfPointsToTwips, pdfPointsToWordPixels, pdfPointsToEmu, groupLaidOutItems, detectHeaderBottom, markSectionHeadings, filterOutlierItems, normalizePageLines, linesToDocBlocks, packPagesToWord, pdfToWord } from './pdf-to-word'
+import { EMPTY_PDF_TEXT_ERROR, joinLineItems, throwIfNoText, tightenCjkSpacing, cleanOcrText, isUsefulOcrLine, isLikelyStamp, isScannerWatermark, isEdgeStampText, isRedSealSample, isRedInkPixel, stripLatinNoise, pdfPointsToTwips, pdfPointsToWordPixels, pdfPointsToEmu, groupLaidOutItems, detectHeaderBottom, markSectionHeadings, filterOutlierItems, normalizePageLines, linesToDocBlocks, packPagesToWord, pdfToWord } from './pdf-to-word'
 import mammoth from 'mammoth'
 import { makePdf } from './test-pdf'
 
 describe('tightenCjkSpacing', () => {
   it('removes spaces between CJK characters', () => {
     expect(tightenCjkSpacing('关于 规范 费用 报销')).toBe('关于规范费用报销')
+  })
+})
+
+describe('cleanOcrText', () => {
+  it('strips scan pipes and tightens CJK', () => {
+    expect(cleanOcrText('按规|定计缴个人所得税')).toBe('按规定计缴个人所得税')
+    expect(cleanOcrText('带有部分人员专项奖励属性的，')).toBe('带有部分人员专项奖励属性的，')
+  })
+})
+
+describe('isUsefulOcrLine', () => {
+  it('keeps normal notice text and drops leftover junk', () => {
+    expect(isUsefulOcrLine('按规定计缴个人所得税', 80)).toBe(true)
+    expect(isUsefulOcrLine('| | · ·', 90)).toBe(false)
+    expect(isUsefulOcrLine('abc', 90)).toBe(false)
+    expect(isUsefulOcrLine('个人消费类支出', 20)).toBe(false)
+  })
+
+  it('keeps low-confidence CJK dates and drops latin leftovers', () => {
+    expect(isUsefulOcrLine('2026年9月17日', 25)).toBe(true)
+    expect(isUsefulOcrLine('is', 90)).toBe(false)
+  })
+})
+
+describe('isRedInkPixel', () => {
+  it('detects seal red and rejects black text or blue logo', () => {
+    expect(isRedInkPixel(200, 40, 40)).toBe(true)
+    expect(isRedInkPixel(20, 20, 20)).toBe(false)
+    expect(isRedInkPixel(40, 80, 180)).toBe(false)
+  })
+
+  it('does not bleach dark strokes with red chromatic fringe', () => {
+    expect(isRedInkPixel(90, 40, 30)).toBe(false)
+    expect(isRedInkPixel(40, 20, 15)).toBe(false)
+  })
+})
+
+describe('stripLatinNoise', () => {
+  it('strips short latin junk from CJK lines', () => {
+    expect(stripLatinNoise('员工私人聚上 V 餐费用')).toBe('员工私人聚上餐费用')
+    expect(stripLatinNoise('纯游玩 TH (ATES) 非公司统一安排')).toContain('纯游玩')
+    expect(stripLatinNoise('纯游玩 TH (ATES) 非公司统一安排')).not.toMatch(/TH|ATES/)
+    expect(stripLatinNoise('qo 个个人商业保险')).toBe('个个人商业保险')
+    expect(stripLatinNoise('住宿及餐饮 is')).toBe('住宿及餐饮')
+  })
+
+  it('keeps English letterhead and TEL', () => {
+    expect(stripLatinNoise('TEL: 021-58355535')).toBe('TEL: 021-58355535')
+    expect(stripLatinNoise('SHANGHAI KEYONTECHS CO., LTD.')).toBe('SHANGHAI KEYONTECHS CO., LTD.')
+  })
+})
+
+describe('isLikelyStamp', () => {
+  it('accepts a right-side square seal and rejects leftover page fragments', () => {
+    expect(isLikelyStamp({ x: 380, y: 520, width: 90, height: 90 }, 595, 842)).toBe(true)
+    expect(isLikelyStamp({ x: 80, y: 360, width: 420, height: 180 }, 595, 842)).toBe(false)
+    expect(isLikelyStamp({ x: 40, y: 40, width: 90, height: 90 }, 595, 842)).toBe(false)
+  })
+})
+
+describe('isScannerWatermark', () => {
+  it('detects common scanner chrome', () => {
+    expect(isScannerWatermark('AI校对')).toBe(true)
+    expect(isScannerWatermark('本地方开')).toBe(true)
+    expect(isScannerWatermark('按规定计缴个人所得税')).toBe(false)
+  })
+})
+
+describe('isEdgeStampText', () => {
+  it('drops the vertical margin stamp column', () => {
+    expect(isEdgeStampText({ x: 540, width: 40 }, 595)).toBe(true)
+    expect(isEdgeStampText({ x: 72, width: 400 }, 595)).toBe(false)
+  })
+})
+
+describe('isRedSealSample', () => {
+  it('keeps red circular seals and rejects leftover black text', () => {
+    expect(isRedSealSample(80, 120)).toBe(true)
+    expect(isRedSealSample(4, 120)).toBe(false)
   })
 })
 
@@ -98,6 +177,33 @@ describe('normalizePageLines', () => {
     expect(lines.some((line) => line.fontSize > 20)).toBe(false)
     expect(lines.some((line) => line.height > 30)).toBe(false)
     expect(lines.map((line) => line.text)).toContain('各部门、全体员工：')
+  })
+
+  it('keeps both halves of a wrapped notice sentence when boxes overlap', () => {
+    const lines = normalizePageLines(
+      [
+        {
+          text: '现将不予报销项目、',
+          x: 72,
+          y: 160,
+          width: 420,
+          height: 18,
+          fontSize: 12,
+        },
+        {
+          text: '个税征管要求及报销管理规范通知如下：',
+          x: 80,
+          y: 165,
+          width: 380,
+          height: 16,
+          fontSize: 12,
+        },
+      ],
+      595
+    )
+    const joined = lines.map((line) => line.text).join('')
+    expect(joined).toContain('现将不予报销项目')
+    expect(joined).toContain('个税征管要求及报销管理规范通知如下')
   })
 })
 

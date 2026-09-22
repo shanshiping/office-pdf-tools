@@ -46,6 +46,7 @@ export async function getOcrWorker(
     }).then(async (worker) => {
       await worker.setParameters({
         preserve_interword_spaces: '1',
+        user_defined_dpi: '220',
       })
       return worker
     })

@@ -56,7 +56,7 @@ export type WordPage = {
 }
 
 const NATIVE_TEXT_MIN_CHARS = 15
-const RENDER_SCALE = 2
+const RENDER_SCALE = 2.4
 const CJK_FONT = {
   ascii: 'Times New Roman',
   hAnsi: 'Times New Roman',
@@ -91,6 +91,142 @@ export function tightenCjkSpacing(text: string): string {
     .replace(/([\u3400-\u9fff])\s+(?=[\u3400-\u9fff])/g, '$1')
     .replace(/([\u3400-\u9fff])\s+(?=[\u3000-\u303f\uff00-\uffef])/g, '$1')
     .replace(/([\u3000-\u303f\uff00-\uffef])\s+(?=[\u3400-\u9fff])/g, '$1')
+}
+
+const LATIN_KEEP_RE = /^(TEL|CO|LTD|NO|PDF|VAT|CEO|HR|OK)$/i
+
+export function isRedInkPixel(r: number, g: number, b: number): boolean {
+  const luma = 0.299 * r + 0.587 * g + 0.114 * b
+  // Keep near-black strokes (chromatic fringe); bleach bright seal red.
+  if (luma < 55) return false
+  return r > 120 && r > g + 30 && r > b + 30
+}
+
+export function stripLatinNoise(text: string): string {
+  const cjk = (text.match(/[\u3400-\u9fff]/g) || []).length
+  const latin = (text.match(/[A-Za-z]/g) || []).length
+  if (cjk < 4 && cjk < latin) return text
+
+  let out = text.replace(/\b[A-Za-z]{1,4}\s*\(\s*[A-Za-z]{1,8}\s*\)/g, '')
+  out = out.replace(/\(\s*[A-Za-z]{1,8}\s*\)/g, '')
+  out = out.replace(/\b[A-Za-z]{1,4}\b/g, (token) => (LATIN_KEEP_RE.test(token) ? token : ''))
+  return tightenCjkSpacing(out.replace(/\s{2,}/g, ' ').trim())
+}
+
+export function cleanOcrText(text: string): string {
+  return stripLatinNoise(
+    tightenCjkSpacing(
+      text
+        .replace(/[|｜¦]/g, '')
+        .replace(/[·•]/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/([，。；：、])\1+/g, '$1')
+        .trim()
+    )
+  )
+}
+
+export function isUsefulOcrLine(text: string, confidence = 100): boolean {
+  const cleaned = cleanOcrText(text)
+  const hasCjk = /[\u3400-\u9fff]/.test(cleaned)
+  const minConfidence = hasCjk ? 22 : 38
+  if (!cleaned || confidence < minConfidence) return false
+  const compact = cleaned.replace(/\s/g, '')
+  if (compact.length < 2) return false
+  const useful = compact.replace(/[^\u3400-\u9fffA-Za-z0-9]/g, '')
+  if (useful.length === 0) return false
+  if (compact.length > 6 && useful.length / compact.length < 0.4) return false
+  if (!hasCjk && useful.length < 8) return false
+  return true
+}
+
+export function isLikelyStamp(
+  image: { x: number; y: number; width: number; height: number },
+  pageWidth: number,
+  pageHeight: number
+): boolean {
+  if (image.width < 56 || image.height < 56) return false
+  if (image.width > pageWidth * 0.42 || image.height > pageHeight * 0.38) return false
+  const aspect = image.width / image.height
+  if (aspect < 0.55 || aspect > 1.85) return false
+  if (image.x + image.width / 2 < pageWidth * 0.48) return false
+  if (image.y < pageHeight * 0.32) return false
+  return true
+}
+
+const SCANNER_WATERMARK_RE = /AI\s*校对|本地方开|扫描全能王|福昕|CamScanner/i
+
+export function isScannerWatermark(text: string): boolean {
+  return SCANNER_WATERMARK_RE.test(text)
+}
+
+export function isEdgeStampText(
+  line: { x: number; width: number },
+  pageWidth: number
+): boolean {
+  return line.x > pageWidth * 0.86 && line.width < pageWidth * 0.14
+}
+
+export function isRedSealSample(redInk: number, darkInk: number): boolean {
+  return darkInk >= 20 && redInk / darkInk >= 0.15
+}
+
+export function enhanceForOcr(source: HTMLCanvasElement): HTMLCanvasElement {
+  const out = document.createElement('canvas')
+  out.width = source.width
+  out.height = source.height
+  const ctx = out.getContext('2d')
+  if (!ctx) return source
+  ctx.drawImage(source, 0, 0)
+  const img = ctx.getImageData(0, 0, out.width, out.height)
+  const pixels = img.data
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (isRedInkPixel(pixels[i], pixels[i + 1], pixels[i + 2])) {
+      pixels[i] = pixels[i + 1] = pixels[i + 2] = 255
+    }
+  }
+  let min = 255
+  let max = 0
+  for (let i = 0; i < pixels.length; i += 32) {
+    const luma = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2]
+    if (luma < min) min = luma
+    if (luma > max) max = luma
+  }
+  const range = Math.max(24, max - min)
+  for (let i = 0; i < pixels.length; i += 4) {
+    const luma = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2]
+    let value = ((luma - min) / range) * 255
+    if (value > 232) value = 255
+    else if (value < 48) value = 0
+    pixels[i] = pixels[i + 1] = pixels[i + 2] = value
+  }
+  ctx.putImageData(img, 0, 0)
+  return out
+}
+
+function sampleBoxInk(
+  canvas: HTMLCanvasElement,
+  box: { x: number; y: number; w: number; h: number }
+): { redInk: number; darkInk: number } {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return { redInk: 0, darkInk: 0 }
+  const sx = Math.max(0, Math.floor(box.x))
+  const sy = Math.max(0, Math.floor(box.y))
+  const sw = Math.max(1, Math.min(canvas.width - sx, Math.round(box.w)))
+  const sh = Math.max(1, Math.min(canvas.height - sy, Math.round(box.h)))
+  const data = ctx.getImageData(sx, sy, sw, sh).data
+  let redInk = 0
+  let darkInk = 0
+  for (let i = 0; i < data.length; i += 16) {
+    const r = data[i]
+    const g = data[i + 1]
+    const b = data[i + 2]
+    const luma = 0.299 * r + 0.587 * g + 0.114 * b
+    if (luma > 236) continue
+    darkInk++
+    if (isRedInkPixel(r, g, b)) redInk++
+  }
+  return { redInk, darkInk }
 }
 
 export function throwIfNoText(charCount: number): void {
@@ -138,6 +274,27 @@ function boxesOverlap(a: PageLine, b: PageLine): boolean {
   return overlapX * overlapY > area * 0.45
 }
 
+function unionLineBox(a: PageLine, b: PageLine): Pick<PageLine, 'x' | 'y' | 'width' | 'height'> {
+  const x = Math.min(a.x, b.x)
+  const y = Math.min(a.y, b.y)
+  const right = Math.max(a.x + a.width, b.x + b.width)
+  const bottom = Math.max(a.y + a.height, b.y + b.height)
+  return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) }
+}
+
+function usefulCharCount(text: string): number {
+  return (text.match(/[\u3400-\u9fffA-Za-z0-9]/g) || []).length
+}
+
+export function mergeOverlappingPageLines(a: PageLine, b: PageLine): PageLine {
+  if (a.text.includes(b.text)) return { ...a, ...unionLineBox(a, b) }
+  if (b.text.includes(a.text)) return { ...b, ...unionLineBox(a, b) }
+  // Same-line duplicate / OCR double-read: keep the denser text, do not glue junk.
+  return usefulCharCount(b.text) > usefulCharCount(a.text)
+    ? { ...b, ...unionLineBox(a, b) }
+    : { ...a, ...unionLineBox(a, b) }
+}
+
 export function normalizePageLines(lines: PageLine[], pageWidth: number): PageLine[] {
   if (lines.length === 0) return lines
   const median = medianNumber(lines.map((line) => line.height)) || 12
@@ -169,7 +326,14 @@ export function normalizePageLines(lines: PageLine[], pageWidth: number): PageLi
       kept.push(line)
       continue
     }
-    if (line.height < kept[index].height) kept[index] = line
+    const prev = kept[index]
+    const midGap = Math.abs(prev.y + prev.height / 2 - (line.y + line.height / 2))
+    // Tall OCR boxes often overlap the next wrap line — keep both instead of dropping.
+    if (midGap > Math.max(prev.height, line.height) * 0.35) {
+      kept.push(line)
+      continue
+    }
+    kept[index] = mergeOverlappingPageLines(prev, line)
   }
   return kept
 }
@@ -421,7 +585,7 @@ function findGraphicBoxes(
     }
   }
 
-  const pad = 5
+  const pad = 18
   for (const box of masked) {
     const x0 = Math.max(0, Math.floor((box.x - pad) / cell))
     const y0 = Math.max(0, Math.floor((box.y - pad) / cell))
@@ -475,11 +639,13 @@ function findGraphicBoxes(
     const y = minR * cell
     const w = Math.min(width - x, (maxC - minC + 1) * cell)
     const h = Math.min(height - y, (maxR - minR + 1) * cell)
-    if (w < 16 && h < 16) continue
+    if (w < 24 && h < 24) continue
+    if (w > width * 0.48 || h > height * 0.4) continue
+    if (w * h > width * height * 0.22) continue
     boxes.push({ x, y, w, h })
   }
 
-  return mergeNearbyBoxes(boxes, 14)
+  return mergeNearbyBoxes(boxes, 8)
 }
 
 async function renderPageCanvas(
@@ -551,14 +717,15 @@ function ocrBoxToLaidOut(
   const sx = widthPt / canvas.width
   const sy = heightPt / canvas.height
   return items
-    .filter((item) => item.confidence >= 30 && /[\u3400-\u9fffA-Za-z0-9]/.test(item.text))
+    .filter((item) => isUsefulOcrLine(item.text, item.confidence) && !isScannerWatermark(item.text))
     .map((item) => ({
-      text: tightenCjkSpacing(item.text),
+      text: cleanOcrText(item.text),
       x: item.x0 * sx,
       y: item.y0 * sy,
       width: Math.max(1, (item.x1 - item.x0) * sx),
       height: Math.max(1, (item.y1 - item.y0) * sy),
     }))
+    .filter((item) => item.text)
 }
 
 function ocrPageToLines(
@@ -575,6 +742,7 @@ function ocrPageToLines(
     width: item.width,
     height: item.height,
     fontSize: item.height * 0.8,
+    confidence: undefined as number | undefined,
   }))
   const median = medianNumber(fromLines.map((line) => line.height)) || 14
   const sane = fromLines.filter((line) => line.height <= median * 2.2)
@@ -657,11 +825,15 @@ function pickHeaderImage(images: PageImage[]): PageImage | undefined {
   return images.find((image) => image.y <= 36) || images[0]
 }
 
-function pickStampImage(images: PageImage[], header?: PageImage): PageImage | undefined {
-  const rest = images
-    .filter((image) => image !== header && image.width >= 48 && image.height >= 48)
-    .sort((a, b) => b.width * b.height - a.width * a.height)
-  return rest[0]
+function pickStampImage(
+  images: PageImage[],
+  header: PageImage | undefined,
+  pageWidth: number,
+  pageHeight: number
+): PageImage | undefined {
+  return images
+    .filter((image) => image !== header && isLikelyStamp(image, pageWidth, pageHeight))
+    .sort((a, b) => b.width * b.height - a.width * a.height)[0]
 }
 
 export async function packPagesToWord(pages: WordPage[]): Promise<ArrayBuffer> {
@@ -678,7 +850,7 @@ export async function packPagesToWord(pages: WordPage[]): Promise<ArrayBuffer> {
     const contentWidth = Math.max(200, page.widthPt - margin * 2)
     const images = page.images || []
     const header = pickHeaderImage(images)
-    const stamp = pickStampImage(images, header)
+    const stamp = pickStampImage(images, header, page.widthPt, page.heightPt)
     const children: Paragraph[] = []
 
     if (header) {
@@ -740,12 +912,20 @@ async function extractPageModel(
     lines = groupLaidOutItems(filterOutlierItems(pdfItemsToLaidOut(pdfItems, viewport)))
     lines = markSectionHeadings(normalizePageLines(lines, widthPt))
   } else {
-    const ocr = await recognizePage(canvas, onOcrProgress)
+    const ocr = await recognizePage(enhanceForOcr(canvas), onOcrProgress)
     lines = markSectionHeadings(ocrPageToLines(ocr.lines, ocr.words, canvas, widthPt, heightPt))
   }
 
   const headerBottom = detectHeaderBottom(lines, heightPt)
-  const bodyLines = headerBottom > 24 ? lines.filter((line) => line.y + line.height / 2 >= headerBottom) : lines
+  const bodyLines = (headerBottom > 24
+    ? lines.filter((line) => line.y + line.height / 2 >= headerBottom)
+    : lines
+  ).filter(
+    (line) =>
+      isUsefulOcrLine(line.text, line.confidence ?? 100) &&
+      !isScannerWatermark(line.text) &&
+      !isEdgeStampText(line, widthPt)
+  )
 
   const scaleX = canvas.width / widthPt
   const scaleY = canvas.height / heightPt
@@ -771,17 +951,18 @@ async function extractPageModel(
     })
   }
 
-  for (const box of findGraphicBoxes(canvas, masked)) {
-    const width = box.w / scaleX
-    const height = box.h / scaleY
-    if (width < 48 || height < 48) continue
-    images.push({
+  for (const box of findGraphicBoxes(canvas, masked, 8)) {
+    const image = {
       jpeg: cropCanvasJpeg(canvas, box.x, box.y, box.w, box.h),
       x: box.x / scaleX,
       y: box.y / scaleY,
-      width,
-      height,
-    })
+      width: box.w / scaleX,
+      height: box.h / scaleY,
+    }
+    if (!isLikelyStamp(image, widthPt, heightPt)) continue
+    const ink = sampleBoxInk(canvas, box)
+    if (!isRedSealSample(ink.redInk, ink.darkInk)) continue
+    images.push(image)
   }
 
   return { widthPt, heightPt, lines: bodyLines, images }
